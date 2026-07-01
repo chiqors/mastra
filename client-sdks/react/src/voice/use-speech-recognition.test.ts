@@ -131,6 +131,39 @@ describe('useSpeechRecognition (browser path)', () => {
     expect(lastRecognition.stop).toHaveBeenCalledTimes(1);
   });
 
+  it('surfaces an error when browser recognition never actually starts', async () => {
+    vi.useFakeTimers();
+
+    class SilentSpeechRecognition {
+      start = vi.fn();
+      stop = vi.fn(() => this.onend?.());
+      continuous = false;
+      lang = '';
+      onstart: (() => void) | null = null;
+      onresult: ((event: any) => void) | null = null;
+      onerror: ((event: any) => void) | null = null;
+      onend: (() => void) | null = null;
+      constructor() {
+        lastRecognition = this as any;
+      }
+    }
+
+    (window as any).SpeechRecognition = SilentSpeechRecognition;
+    (window as any).webkitSpeechRecognition = SilentSpeechRecognition;
+
+    const { result } = renderHook(() => useSpeechRecognition({}), { wrapper });
+
+    act(() => result.current.start());
+    act(() => {
+      vi.advanceTimersByTime(1600);
+    });
+
+    expect(result.current.isListening).toBe(false);
+    expect(result.current.error).toBe('Speech input could not start in this browser. Check microphone support and permissions.');
+
+    vi.useRealTimers();
+  });
+
   it('stops recognition and clears handlers on unmount', async () => {
     installSpeechRecognition();
     const { unmount } = renderHook(() => useSpeechRecognition({}), { wrapper });

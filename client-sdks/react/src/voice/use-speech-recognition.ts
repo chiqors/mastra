@@ -75,19 +75,48 @@ export const useSpeechRecognition = ({
 
 const useBrowserSpeechRecognition = ({ language = 'en-US' }: { language?: string }): SpeechRecognitionResult => {
   const speechRecognitionRef = useRef<any>(null);
+  const startTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [state, setState] = useState<SpeechRecognitionState>({
     isListening: false,
     transcript: '',
     error: null,
   });
 
+  const clearStartTimeout = () => {
+    if (!startTimeoutRef.current) return;
+    clearTimeout(startTimeoutRef.current);
+    startTimeoutRef.current = null;
+  };
+
   const start = () => {
     if (!speechRecognitionRef.current) return;
-    speechRecognitionRef.current.start();
+
+    setState(prev => ({ ...prev, error: null }));
+    clearStartTimeout();
+
+    startTimeoutRef.current = setTimeout(() => {
+      setState(prev =>
+        prev.isListening
+          ? prev
+          : {
+              ...prev,
+              error: 'Speech input could not start in this browser. Check microphone support and permissions.',
+            },
+      );
+    }, 1500);
+
+    try {
+      speechRecognitionRef.current.start();
+    } catch (error) {
+      clearStartTimeout();
+      const message = error instanceof Error ? error.message : 'Speech input could not start in this browser';
+      setState(prev => ({ ...prev, isListening: false, error: message }));
+    }
   };
 
   const stop = () => {
     if (!speechRecognitionRef.current) return;
+    clearStartTimeout();
     speechRecognitionRef.current.stop();
   };
 
@@ -105,6 +134,7 @@ const useBrowserSpeechRecognition = ({ language = 'en-US' }: { language?: string
     recognition.lang = language;
 
     recognition.onstart = () => {
+      clearStartTimeout();
       setState(prev => ({ ...prev, isListening: true, error: null }));
     };
 
@@ -122,12 +152,17 @@ const useBrowserSpeechRecognition = ({ language = 'en-US' }: { language?: string
     };
 
     recognition.onerror = (event: any) => {
+      clearStartTimeout();
       setState(prev => ({ ...prev, error: `Error: ${event.error}` }));
     };
 
-    recognition.onend = () => setState(prev => ({ ...prev, isListening: false }));
+    recognition.onend = () => {
+      clearStartTimeout();
+      setState(prev => ({ ...prev, isListening: false }));
+    };
 
     return () => {
+      clearStartTimeout();
       try {
         recognition.stop();
       } catch {

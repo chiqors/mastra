@@ -1,7 +1,8 @@
 import type { UpdateModelParams } from '@mastra/client-js';
+import { Skeleton } from '@mastra/playground-ui/components/Skeleton';
 import { cn } from '@mastra/playground-ui/utils/cn';
 import { Lock, TriangleAlert } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useLayoutEffect, useRef } from 'react';
 import { useAgent } from '../hooks/use-agent';
 import { useUpdateAgentModel } from '../hooks/use-agents';
 import { useBuilderModelPolicy } from '@/domains/agent-builder';
@@ -21,33 +22,72 @@ export interface ComposerModelSwitcherProps {
   agentId: string;
 }
 
+const resolveInitialSelection = (
+  provider: string,
+  modelId: string,
+  providers: Array<{ id: string }>,
+): { provider: string; modelId: string } => {
+  if (!provider || !modelId) {
+    return { provider, modelId };
+  }
+
+  if (provider.includes('/') || !modelId.includes('/')) {
+    return { provider, modelId };
+  }
+
+  const [providerSegment, ...modelSegments] = modelId.split('/');
+  if (!providerSegment || modelSegments.length === 0) {
+    return { provider, modelId };
+  }
+
+  const combinedProviderId = `${provider}/${providerSegment}`;
+  const matchedProvider = providers.find(entry => entry.id === combinedProviderId);
+  if (!matchedProvider) {
+    return { provider, modelId };
+  }
+
+  return {
+    provider: matchedProvider.id,
+    modelId: modelSegments.join('/'),
+  };
+};
+
 export const ComposerModelSwitcher = ({ agentId }: ComposerModelSwitcherProps) => {
-  const { data: agent } = useAgent(agentId);
+  const { data: agent, isLoading: agentLoading } = useAgent(agentId);
   const { mutateAsync: updateModel } = useUpdateAgentModel(agentId);
   const { data: dataProviders, isLoading: providersLoading } = useLLMProviders();
   const policy = useBuilderModelPolicy();
-
-  const defaultProvider = agent?.provider || '';
-  const defaultModel = agent?.modelId || '';
+  const providers = dataProviders?.providers || [];
+  const initialSelection = resolveInitialSelection(agent?.provider || '', agent?.modelId || '', providers);
+  const defaultProvider = initialSelection.provider;
+  const defaultModel = initialSelection.modelId;
 
   const [selectedModel, setSelectedModel] = useState(defaultModel);
   const [selectedProvider, setSelectedProvider] = useState(defaultProvider);
   const [modelOpen, setModelOpen] = useState(false);
+  const hasUserInteractedRef = useRef(false);
+  const lastHydratedSelectionRef = useRef<string>('');
 
-  const providers = dataProviders?.providers || [];
-
-  // Only hydrate from agent defaults while the local picker is still empty.
-  // This avoids clobbering the first manual selection when the initial agent
-  // details query resolves slightly after the user interacts.
-  useEffect(() => {
-    if (!selectedProvider && defaultProvider) {
-      setSelectedProvider(defaultProvider);
+  // Hydrate from agent defaults until the user makes a manual change.
+  // This keeps the initial post-refresh selection stable even when agent
+  // details resolve in multiple steps, while still protecting the user's
+  // first manual choice from late query hydration.
+  useLayoutEffect(() => {
+    if (hasUserInteractedRef.current) {
+      return;
     }
 
-    if (!selectedModel && defaultModel) {
-      setSelectedModel(defaultModel);
+    const nextProvider = cleanProviderId(defaultProvider);
+    const nextSelection = `${nextProvider}:${defaultModel}`;
+
+    if (!nextProvider || !defaultModel || lastHydratedSelectionRef.current === nextSelection) {
+      return;
     }
-  }, [defaultModel, defaultProvider, selectedModel, selectedProvider]);
+
+    lastHydratedSelectionRef.current = nextSelection;
+    setSelectedProvider(nextProvider);
+    setSelectedModel(defaultModel);
+  }, [agent?.modelId, agent?.provider, agentId, defaultModel, defaultProvider, providers.length, selectedModel, selectedProvider]);
 
   const currentModelProvider = cleanProviderId(selectedProvider);
 
@@ -57,6 +97,7 @@ export const ComposerModelSwitcher = ({ agentId }: ComposerModelSwitcherProps) =
 
   // Auto-save when model changes
   const handleModelSelect = async (modelId: string) => {
+    hasUserInteractedRef.current = true;
     setSelectedModel(modelId);
 
     if (modelId && fullProviderId) {
@@ -74,6 +115,7 @@ export const ComposerModelSwitcher = ({ agentId }: ComposerModelSwitcherProps) =
   // Handle provider selection
   const handleProviderSelect = (providerId: string) => {
     const cleanedId = cleanProviderId(providerId);
+    hasUserInteractedRef.current = true;
     setSelectedProvider(cleanedId);
 
     // Only clear model selection and open model combobox when switching to a different provider
@@ -82,6 +124,16 @@ export const ComposerModelSwitcher = ({ agentId }: ComposerModelSwitcherProps) =
       setModelOpen(true);
     }
   };
+
+  const awaitingInitialSelection =
+    (agentLoading || providersLoading) &&
+    !hasUserInteractedRef.current &&
+    !selectedProvider &&
+    !selectedModel;
+
+  if (awaitingInitialSelection) {
+    return <Skeleton className="h-8 w-44 rounded-full" />;
+  }
 
   if (providersLoading) {
     return null;

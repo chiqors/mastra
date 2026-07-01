@@ -307,21 +307,69 @@ const ComposerSendingGradient = ({ pulseKey }: { pulseKey: number }) => {
 const SpeechInput = ({ agentId, onTranscript }: { agentId?: string; onTranscript: (text: string) => void }) => {
   const { requestContext } = usePlaygroundStore();
   const { start, stop, isListening, transcript } = useSpeechRecognition({ agentId, requestContext });
+  const [speechSupported, setSpeechSupported] = useState<boolean | null>(null);
+  const [speechError, setSpeechError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      setSpeechSupported(false);
+      return;
+    }
+
+    const browserSpeechRecognition =
+      'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
+
+    setSpeechSupported(browserSpeechRecognition);
+  }, []);
 
   useEffect(() => {
     if (!transcript) return;
+    setSpeechError(null);
     startTransition(() => onTranscript(transcript));
   }, [onTranscript, transcript]);
+
+  const unsupported = speechSupported === false;
+  const tooltip = speechError
+    ? speechError
+    : unsupported
+      ? 'Speech input is not supported in this browser'
+      : isListening
+        ? 'Stop dictation'
+        : 'Start dictation';
 
   return (
     <Button
       variant="default"
       size="icon-md"
       type="button"
-      tooltip={isListening ? 'Stop dictation' : 'Start dictation'}
-      onClick={() => (isListening ? stop() : start())}
+      tooltip={tooltip}
+      disabled={unsupported}
+      onClick={async () => {
+        if (unsupported) return;
+
+        if (isListening) {
+          setSpeechError(null);
+          stop();
+          return;
+        }
+
+        try {
+          setSpeechError(null);
+          await start();
+        } catch (error) {
+          const message =
+            error instanceof Error && error.message
+              ? error.message
+              : 'Speech input could not start in this browser';
+          setSpeechError(message);
+        }
+      }}
     >
-      {isListening ? <CircleStopIcon /> : <Mic className="h-5 w-5 text-neutral3 hover:text-neutral6" />}
+      {isListening ? (
+        <CircleStopIcon />
+      ) : (
+        <Mic className={cn('h-5 w-5', unsupported ? 'text-neutral2' : 'text-neutral3 hover:text-neutral6')} />
+      )}
     </Button>
   );
 };
