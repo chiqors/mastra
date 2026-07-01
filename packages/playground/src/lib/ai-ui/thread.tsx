@@ -304,9 +304,17 @@ const ComposerSendingGradient = ({ pulseKey }: { pulseKey: number }) => {
   );
 };
 
-const SpeechInput = ({ agentId, onTranscript }: { agentId?: string; onTranscript: (text: string) => void }) => {
+const SpeechInput = ({
+  agentId,
+  onTranscript,
+  onErrorChange,
+}: {
+  agentId?: string;
+  onTranscript: (text: string) => void;
+  onErrorChange?: (error: string | null) => void;
+}) => {
   const { requestContext } = usePlaygroundStore();
-  const { start, stop, isListening, transcript } = useSpeechRecognition({ agentId, requestContext });
+  const { start, stop, isListening, transcript, error } = useSpeechRecognition({ agentId, requestContext });
   const [speechSupported, setSpeechSupported] = useState<boolean | null>(null);
   const [speechError, setSpeechError] = useState<string | null>(null);
 
@@ -327,6 +335,15 @@ const SpeechInput = ({ agentId, onTranscript }: { agentId?: string; onTranscript
     setSpeechError(null);
     startTransition(() => onTranscript(transcript));
   }, [onTranscript, transcript]);
+
+  useEffect(() => {
+    if (!error) return;
+    setSpeechError(error);
+  }, [error]);
+
+  useEffect(() => {
+    onErrorChange?.(speechError);
+  }, [onErrorChange, speechError]);
 
   const unsupported = speechSupported === false;
   const tooltip = speechError
@@ -397,35 +414,45 @@ const ComposerActionRow = ({
   onCancel,
   onSetText,
 }: ComposerActionRowProps) => {
-  return (
-    <div className="flex flex-wrap-reverse justify-between items-center gap-2 px-1.5 pb-1.5">
-      {((showModelSwitcher && agentId) || runOptionsSlot) && (
-        <div className="flex items-center gap-1.5 shrink-0 max-w-full">
-          {showModelSwitcher && agentId && (
-            <>
-              <div className="rounded-full bg-surface3 border border-border1 transition-colors duration-normal focus-within:border-border2">
-                <ComposerModelSwitcher agentId={agentId} />
-              </div>
-              <ComposerModelSettings agentId={agentId} />
-            </>
-          )}
-          {runOptionsSlot}
-        </div>
-      )}
+  const [speechError, setSpeechError] = useState<string | null>(null);
 
-      <div className="flex shrink-0 items-center gap-1.5">
-        <ButtonsGroup spacing="close">
-          {canExecute && <AttachFilePopover />}
-          {canExecute && <SpeechInput agentId={agentId} onTranscript={onSetText} />}
-        </ButtonsGroup>
-        <ComposerSendButton
-          canExecute={canExecute}
-          isEmpty={isEmpty}
-          isRunning={isRunning}
-          canSendWhileStreaming={canSendWhileStreaming}
-          onCancel={onCancel}
-        />
+  return (
+    <div className="px-1.5 pb-1.5">
+      <div className="flex flex-wrap-reverse justify-between items-center gap-2">
+        {((showModelSwitcher && agentId) || runOptionsSlot) && (
+          <div className="flex items-center gap-1.5 shrink-0 max-w-full">
+            {showModelSwitcher && agentId && (
+              <>
+                <div className="rounded-full bg-surface3 border border-border1 transition-colors duration-normal focus-within:border-border2">
+                  <ComposerModelSwitcher agentId={agentId} />
+                </div>
+                <ComposerModelSettings agentId={agentId} />
+              </>
+            )}
+            {runOptionsSlot}
+          </div>
+        )}
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          <ButtonsGroup spacing="close">
+            {canExecute && <AttachFilePopover />}
+            {canExecute && <SpeechInput agentId={agentId} onTranscript={onSetText} onErrorChange={setSpeechError} />}
+          </ButtonsGroup>
+          <ComposerSendButton
+            canExecute={canExecute}
+            isEmpty={isEmpty}
+            isRunning={isRunning}
+            canSendWhileStreaming={canSendWhileStreaming}
+            onCancel={onCancel}
+          />
+        </div>
       </div>
+
+      {speechError && (
+        <p className="pt-2 px-1 text-ui-sm text-orange-11" role="alert">
+          {speechError}
+        </p>
+      )}
     </div>
   );
 };
