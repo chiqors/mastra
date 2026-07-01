@@ -381,6 +381,28 @@ export class MessageList {
     });
   }
 
+  private getAIV5ModelMessagesForPrompt(filterIncompleteToolCalls = false): AIV5Type.ModelMessage[] {
+    const promptMessages = this.getMessagesForModelPrompt();
+    const modelMessages: AIV5Type.ModelMessage[] = [];
+
+    for (const message of this.messages) {
+      if ((message.role as string) === 'signal') {
+        modelMessages.push(mastraDBMessageToSignal(message).toLLMMessage());
+        continue;
+      }
+
+      modelMessages.push(
+        ...convertAIV5UIToModelMessages(
+          this.toAIV5UIMessages([message], { transformToolPayloads: false }),
+          promptMessages,
+          filterIncompleteToolCalls,
+        ),
+      );
+    }
+
+    return modelMessages;
+  }
+
   private convertSignalForModelPrompt(message: MastraDBMessage): MastraDBMessage[] {
     // Model providers only understand normal prompt messages, so project the signal into
     // its LLM-facing UserModelMessage. Preserve the original id/createdAt so MessageList's
@@ -521,13 +543,7 @@ export class MessageList {
     v1: (): MastraMessageV1[] => convertToV1Messages(this.all.db()),
 
     aiV5: {
-      model: (): AIV5Type.ModelMessage[] => {
-        const promptMessages = this.getMessagesForModelPrompt();
-        return convertAIV5UIToModelMessages(
-          this.toAIV5UIMessages(promptMessages, { transformToolPayloads: false }),
-          promptMessages,
-        );
-      },
+      model: (): AIV5Type.ModelMessage[] => this.getAIV5ModelMessagesForPrompt(),
       ui: (): AIV5Type.UIMessage[] => this.toAIV5UIMessages(this.all.db()),
 
       // Used when calling AI SDK streamText/generateText
@@ -538,12 +554,7 @@ export class MessageList {
           this.createAdapterContext(),
           this.messages,
         );
-        const promptMessages = this.getMessagesForModelPrompt();
-        const modelMessages = convertAIV5UIToModelMessages(
-          this.toAIV5UIMessages(promptMessages, { transformToolPayloads: false }),
-          promptMessages,
-          this.filterIncompleteToolCalls,
-        );
+        const modelMessages = this.getAIV5ModelMessagesForPrompt(this.filterIncompleteToolCalls);
 
         const messages = [...systemMessages, ...modelMessages];
 
@@ -561,12 +572,7 @@ export class MessageList {
           downloadRetries: 3,
         },
       ): Promise<LanguageModelV2Prompt> => {
-        const promptMessages = this.getMessagesForModelPrompt();
-        const modelMessages = convertAIV5UIToModelMessages(
-          this.toAIV5UIMessages(promptMessages, { transformToolPayloads: false }),
-          promptMessages,
-          this.filterIncompleteToolCalls,
-        );
+        const modelMessages = this.getAIV5ModelMessagesForPrompt(this.filterIncompleteToolCalls);
 
         const storedModelOutputs = new Map<string, unknown>();
         for (const dbMsg of this.messages) {

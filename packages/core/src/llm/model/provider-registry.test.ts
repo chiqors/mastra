@@ -33,6 +33,40 @@ describe('modelSupportsAttachments', () => {
     expect(modelSupportsAttachments('openrouter/openai/gpt-4o')).toBe(true);
     expect(modelSupportsAttachments('mastra/openrouter/openai/gpt-4o')).toBe(true);
   });
+
+  it('loads attachment capability files for provider ids containing slashes', () => {
+    const originalExistsSync = fs.existsSync;
+    const originalReadFileSync = fs.readFileSync;
+    const originalStatSync = fs.statSync;
+    const packageRoot = process.cwd();
+    const distCapabilitiesDir = path.join(packageRoot, 'dist', 'capabilities');
+    const customProviderCapabilities = path.join(distCapabilitiesDir, 'custom__openai.json');
+
+    vi.spyOn(fs, 'existsSync').mockImplementation(filePath => {
+      if (typeof filePath !== 'string') return originalExistsSync(filePath);
+      const normalizedPath = path.normalize(filePath);
+      if (normalizedPath === path.normalize(distCapabilitiesDir)) return true;
+      if (normalizedPath === path.normalize(customProviderCapabilities)) return true;
+      return originalExistsSync(filePath);
+    });
+
+    vi.spyOn(fs, 'statSync').mockImplementation(filePath => {
+      if (typeof filePath === 'string' && path.normalize(filePath) === path.normalize(distCapabilitiesDir)) {
+        return { isDirectory: () => true } as fs.Stats;
+      }
+      return originalStatSync(filePath);
+    });
+
+    vi.spyOn(fs, 'readFileSync').mockImplementation((filePath, encoding) => {
+      if (typeof filePath === 'string' && path.normalize(filePath) === path.normalize(customProviderCapabilities)) {
+        return JSON.stringify({ attachment: ['gpt-5.4'] });
+      }
+
+      return originalReadFileSync(filePath, encoding as any);
+    });
+
+    expect(modelSupportsAttachments('custom/openai/gpt-5.4')).toBe(true);
+  });
 });
 
 describe('GatewayRegistry Auto-Refresh', () => {

@@ -1161,6 +1161,15 @@ describe('useChat optimistic pending user message', () => {
     expect(metadata?.status).toBe('pending');
     expect(userMessages[0]?.id).toMatch(/^client-set-/);
     expect(metadata?.[CLIENT_MESSAGE_ID_KEY]).toBe(userMessages[0]?.id);
+
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    const sendArgs = sendMessageMock.mock.calls[0]?.[0] as
+      | { message?: { contents?: Array<{ type: string; text?: string; mediaType?: string }> } }
+      | undefined;
+    expect(sendArgs?.message?.contents).toMatchObject([
+      { type: 'text', text: 'look at this' },
+      { type: 'file', mediaType: 'image/png' },
+    ]);
   });
 
   it('keys two sequential sends as independent pending messages', async () => {

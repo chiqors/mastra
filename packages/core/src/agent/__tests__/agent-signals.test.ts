@@ -16,6 +16,7 @@ import { InMemoryNotificationsStorage } from '../../notifications/storage';
 import { createNotificationInboxTool } from '../../notifications/tool';
 import { MastraCompositeStore } from '../../storage/base';
 import { Agent } from '../agent';
+import { MessageList } from '../message-list';
 import {
   createMessageSignal,
   createSignal,
@@ -375,8 +376,8 @@ describe('Agent signals', () => {
           text: '<user messageId="m-2">Look at this</user>',
         }),
         expect.objectContaining({
-          type: 'file',
-          data: 'data:image/png;base64,aGVsbG8=',
+          type: 'image',
+          image: 'data:image/png;base64,aGVsbG8=',
         }),
       ]),
     );
@@ -395,7 +396,7 @@ describe('Agent signals', () => {
     expect(fileOnlyResult.role).toBe('user');
     expect(fileOnlyResult.content).toEqual([
       expect.objectContaining({ type: 'text', text: '<user messageId="m-2d" />' }),
-      expect.objectContaining({ type: 'file', data: 'data:image/png;base64,aGVsbG8=' }),
+      expect.objectContaining({ type: 'image', image: 'data:image/png;base64,aGVsbG8=' }),
     ]);
 
     const noAttributeSignal = createSignal({
@@ -447,8 +448,8 @@ describe('Agent signals', () => {
           text: '<system-reminder kind="screenshot">The user is looking at this screen.</system-reminder>',
         }),
         expect.objectContaining({
-          type: 'file',
-          data: 'data:image/png;base64,aGVsbG8=',
+          type: 'image',
+          image: 'data:image/png;base64,aGVsbG8=',
         }),
       ]),
     );
@@ -467,7 +468,7 @@ describe('Agent signals', () => {
     expect(fileOnlyResult.role).toBe('user');
     expect(fileOnlyResult.content).toEqual([
       expect.objectContaining({ type: 'text', text: '<system-reminder kind="reference-image" />' }),
-      expect.objectContaining({ type: 'file', data: 'data:image/png;base64,aGVsbG8=' }),
+      expect.objectContaining({ type: 'image', image: 'data:image/png;base64,aGVsbG8=' }),
     ]);
 
     // System-reminder with mixed text + file parts: the marker is inlined into the very first
@@ -489,7 +490,7 @@ describe('Agent signals', () => {
         text: '<system-reminder kind="walkthrough">Step one of the screen.</system-reminder>',
       }),
       expect.objectContaining({ type: 'text', text: 'Step two has this attachment.' }),
-      expect.objectContaining({ type: 'file', data: 'data:image/png;base64,aGVsbG8=' }),
+      expect.objectContaining({ type: 'image', image: 'data:image/png;base64,aGVsbG8=' }),
     ]);
   });
 
@@ -599,7 +600,7 @@ describe('Agent signals', () => {
     expect(Array.isArray(llmMessage.content)).toBe(true);
     const llmParts = llmMessage.content as Array<{ type: string; providerOptions?: unknown }>;
     expect(llmParts[0]).toMatchObject({ type: 'text', text: 'hello', providerOptions: partProviderOptions });
-    expect(llmParts[1]).toMatchObject({ type: 'file', data: 'AAA=', mediaType: 'image/png' });
+    expect(llmParts[1]).toMatchObject({ type: 'image', image: 'AAA=', mimeType: 'image/png' });
 
     // DB: per-part providerMetadata persisted alongside the storage part.
     const db = signal.toDBMessage();
@@ -1207,6 +1208,148 @@ describe('Agent signals', () => {
     expect(subscribedRun.value.text).toBe('message response');
 
     subscription.unsubscribe();
+  });
+
+  it('preserves mixed text and image contents when sendMessage wakes an idle thread', async () => {
+    let capturedPrompt: any[] | undefined;
+
+    const agent = new Agent({
+      id: 'idle-message-image-agent',
+      name: 'Idle Message Image Agent',
+      instructions: 'Test',
+      model: new MockLanguageModelV2({
+        doStream: async ({ prompt }) => {
+          capturedPrompt = prompt as any[];
+          const userMessage = capturedPrompt?.find(message => message.role === 'user');
+          const sawImagePart =
+            Array.isArray(userMessage?.content) &&
+            userMessage.content.some(
+              (part: any) =>
+                (part?.type === 'image' &&
+                  (part?.mimeType === 'image/png' || part?.mediaType === 'image/png' || !!part?.image)) ||
+                (part?.type === 'file' &&
+                  part?.mediaType === 'image/png' &&
+                  typeof part?.data === 'string' &&
+                  part.data.length > 0),
+            );
+
+          return {
+            rawCall: { rawPrompt: null, rawSettings: {} },
+            warnings: [],
+            stream: convertArrayToReadableStream([
+              { type: 'stream-start', warnings: [] },
+              { type: 'response-metadata', id: 'id-0', modelId: 'mock-model-id', timestamp: new Date(0) },
+              { type: 'text-start', id: 'text-1' },
+              { type: 'text-delta', id: 'text-1', delta: sawImagePart ? 'image received' : 'image missing' },
+              { type: 'text-end', id: 'text-1' },
+              {
+                type: 'finish',
+                finishReason: 'stop',
+                usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+              },
+            ]),
+          };
+        },
+      }),
+    });
+
+    const subscription = await agent.subscribeToThread({
+      threadId: 'idle-message-image-thread',
+      resourceId: 'idle-message-image-user',
+    });
+    const nextRun = readNextRunWithParts(subscription.stream[Symbol.asyncIterator]());
+
+    const result = await agent.sendMessage(
+      {
+        contents: [
+          { type: 'text', text: 'What is in this image?' },
+          {
+            type: 'file',
+            data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+            mediaType: 'image/png',
+            filename: 'pixel.png',
+          },
+        ],
+      },
+      {
+        resourceId: 'idle-message-image-user',
+        threadId: 'idle-message-image-thread',
+        ifIdle: {
+          streamOptions: {
+            memory: { resource: 'idle-message-image-user', thread: 'idle-message-image-thread' },
+          },
+        },
+      },
+    );
+
+    const subscribedRun = await nextRun;
+    await expect(result.accepted).resolves.toMatchObject({ action: 'wake', runId: subscribedRun.value.runId });
+    expect(result.signal).toMatchObject({
+      type: 'user',
+      tagName: 'user',
+      contents: [
+        { type: 'text', text: 'What is in this image?' },
+        {
+          type: 'file',
+          data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+          mediaType: 'image/png',
+          filename: 'pixel.png',
+        },
+      ],
+    });
+    expect(subscribedRun.value.text).toBe('image received');
+
+    const signalPart = subscribedRun.value.parts.find((part: any) => part.type === 'data-user-message');
+    expect(signalPart?.data).toMatchObject({
+      id: result.signal.id,
+      type: 'user',
+      tagName: 'user',
+      contents: [
+        { type: 'text', text: 'What is in this image?' },
+        {
+          type: 'file',
+          data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+          mediaType: 'image/png',
+          filename: 'pixel.png',
+        },
+      ],
+    });
+
+    const userPrompt = capturedPrompt?.find(message => message.role === 'user');
+    expect(userPrompt?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'text', text: 'What is in this image?' }),
+        expect.objectContaining({ mediaType: 'image/png' }),
+      ]),
+    );
+
+    subscription.unsubscribe();
+  });
+
+  it('converts a mixed text and image user signal into an aiV5 model message', () => {
+    const signal = createMessageSignal({
+      contents: [
+        { type: 'text', text: 'What is in this image?' },
+        {
+          type: 'file',
+          data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+          mediaType: 'image/png',
+          filename: 'pixel.png',
+        },
+      ],
+    });
+
+    const modelMessage = new MessageList()
+      .add(signal, 'input')
+      .get.all.aiV5.model()
+      .find(message => message.role === 'user');
+
+    expect(modelMessage?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'text', text: 'What is in this image?' }),
+        expect.objectContaining({ type: 'image', mimeType: 'image/png' }),
+      ]),
+    );
   });
 
   it('persists external state signals with cache-key tracking', async () => {

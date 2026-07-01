@@ -1,4 +1,4 @@
-import type { FilePart, TextPart, UserModelMessage } from '@internal/ai-sdk-v5';
+import type { FilePart, ImagePart, TextPart, UserModelMessage } from '@internal/ai-sdk-v5';
 
 import { convertDataContentToBase64String } from './message-list/prompt/data-content';
 import type { MastraDBMessage, MastraMessagePart, MastraProviderMetadata } from './message-list/state/types';
@@ -393,6 +393,33 @@ function injectMarkerInline(
   return out;
 }
 
+function signalPartToLLMPart(part: SignalPart): TextPart | ImagePart | FilePart {
+  if (part.type === 'file' && part.mediaType.startsWith('image/')) {
+    return {
+      type: 'image',
+      image: part.data,
+      mimeType: part.mediaType,
+      ...(part.providerOptions ? { providerOptions: part.providerOptions } : {}),
+    };
+  }
+
+  if (part.type === 'file') {
+    return {
+      type: 'file',
+      data: part.data,
+      mediaType: part.mediaType,
+      ...(part.filename ? { filename: part.filename } : {}),
+      ...(part.providerOptions ? { providerOptions: part.providerOptions } : {}),
+    };
+  }
+
+  return {
+    type: 'text',
+    text: part.text,
+    ...(part.providerOptions ? { providerOptions: part.providerOptions } : {}),
+  };
+}
+
 // Build the LLM-facing projection from the canonical parts. Returns a v5 UserModelMessage
 // (a prompt turn the model sees, not a signal row). The XML wrapper carries the attributes
 // inline so there's no metadata.signal here.
@@ -404,20 +431,21 @@ function signalToLLMMessage(
   const hasAttrs = hasMeaningfulAttributes(signal.attributes);
 
   const anyPartProviderOptions = parts.some(part => part.providerOptions);
+  const llmParts = parts.map(signalPartToLLMPart);
 
   let content: UserModelMessage['content'];
   if (isUserMessage && !hasAttrs) {
     // user-message with no attributes — pass parts through unchanged. Collapse a single text
     // part to a bare string so providers get their natural prompt shape (unless the part
     // carries providerOptions, in which case we keep the parts array to preserve them).
-    content = parts.length === 1 && parts[0]?.type === 'text' && !parts[0].providerOptions ? parts[0].text : parts;
+    content = parts.length === 1 && parts[0]?.type === 'text' && !parts[0].providerOptions ? parts[0].text : llmParts;
   } else if (parts.every(part => part.type === 'text') && !anyPartProviderOptions) {
     // Text-only with no per-part providerOptions: flatten to one wrapped string.
     content = signalToXmlMarkup({ ...signal, contents: parts.map(part => part.text).join('\n') });
   } else {
     // Multimodal or per-part providerOptions present: inline-wrap the marker alongside the
     // payload so each part (and its providerOptions) is preserved.
-    content = injectMarkerInline(signal, parts);
+    content = injectMarkerInline(signal, parts).map(signalPartToLLMPart);
   }
 
   return {

@@ -439,6 +439,10 @@ interface ProviderCapabilityFile {
 
 const providerCapCache = new Map<string, string[] | null>();
 
+function capabilityFilename(provider: string): string {
+  return `${provider.replaceAll('/', '__')}.json`;
+}
+
 function isDirectory(dir: string): boolean {
   try {
     return fs.existsSync(dir) && fs.statSync(dir).isDirectory();
@@ -484,7 +488,7 @@ function loadProviderAttachmentModels(provider: string, useDynamicLoading: boole
   }
 
   for (const capabilitiesDir of capabilitiesDirCache) {
-    const filePath = path.join(capabilitiesDir, `${provider}.json`);
+    const filePath = path.join(capabilitiesDir, capabilityFilename(provider));
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
       const data = JSON.parse(content) as ProviderCapabilityFile;

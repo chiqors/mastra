@@ -240,6 +240,24 @@ type DataChunk = Extract<ChunkType, DataChunkType>;
 const isDataChunk = (chunk: ChunkType): chunk is DataChunk =>
   typeof chunk.type === 'string' && chunk.type.startsWith('data-');
 
+const coreUserMessageContentToParts = (
+  message: CoreUserMessage,
+): NonNullable<Exclude<CoreUserMessage['content'], string>> =>
+  typeof message.content === 'string' ? [{ type: 'text', text: message.content }] : message.content;
+
+const mergeCoreUserMessages = (message: string, coreUserMessages?: CoreUserMessage[]): CoreUserMessage[] => {
+  if (!coreUserMessages?.length) {
+    return [{ role: 'user', content: [{ type: 'text', text: message }] }];
+  }
+
+  const content = [
+    ...(message ? ([{ type: 'text', text: message }] as const) : []),
+    ...coreUserMessages.flatMap(coreUserMessageContentToParts),
+  ];
+
+  return [{ role: 'user', content }];
+};
+
 /**
  * Convert AI-SDK v5 UIMessages returned by the server (generate mode) into
  * `MastraDBMessage[]`, stamping the supplied metadata onto each message's
@@ -1116,12 +1134,7 @@ export const useChat = ({
   };
 
   const sendMessage = async ({ mode = 'stream', ...args }: SendMessageArgs) => {
-    const nextMessage: Omit<CoreUserMessage, 'id'> = { role: 'user', content: [{ type: 'text', text: args.message }] };
-    const coreUserMessages = [nextMessage];
-
-    if (args.coreUserMessages) {
-      coreUserMessages.push(...args.coreUserMessages);
-    }
+    const coreUserMessages = mergeCoreUserMessages(args.message, args.coreUserMessages);
 
     // The whole user turn (text + any attachments) is merged into a single
     // optimistic message so streaming renders one bubble, matching how

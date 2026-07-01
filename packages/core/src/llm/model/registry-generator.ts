@@ -12,6 +12,10 @@ interface GatewayWithAttachmentCapabilities {
   getAttachmentCapabilities(): AttachmentCapabilities;
 }
 
+function capabilityFilename(provider: string): string {
+  return `${provider.replaceAll('/', '__')}.json`;
+}
+
 function hasAttachmentCapabilities(
   gateway: MastraModelGatewayInterface,
 ): gateway is MastraModelGatewayInterface & GatewayWithAttachmentCapabilities {
@@ -269,7 +273,7 @@ export async function writeRegistryFiles(
     }
 
     for (const [provider, models] of Object.entries(attachmentCapabilities)) {
-      const providerFile = path.join(capDir, `${provider}.json`);
+      const providerFile = path.join(capDir, capabilityFilename(provider));
       await atomicWriteFile(providerFile, JSON.stringify({ attachment: models }, null, 2), 'utf-8');
     }
   }
