@@ -487,29 +487,32 @@ function findCapabilitiesDirs(useDynamicLoading: boolean): string[] {
 let capabilitiesDirCache: string[] | undefined;
 
 /** Parsed capability file cache — avoids re-reading JSON per dimension. */
-const parsedCapFileCache = new Map<string, ProviderCapabilityFile | null>();
+const parsedCapFileCache = new Map<string, Map<string, ProviderCapabilityFile | null>>();
 
-function loadProviderCapabilityFile(provider: string, useDynamicLoading: boolean): ProviderCapabilityFile | null {
-  if (parsedCapFileCache.has(provider)) return parsedCapFileCache.get(provider)!;
-
-  if (capabilitiesDirCache === undefined) {
-    capabilitiesDirCache = findCapabilitiesDirs(useDynamicLoading);
+function loadProviderCapabilityFile(
+  provider: string,
+  capabilitiesDir: string,
+  capabilityFilePath: string,
+): ProviderCapabilityFile | null {
+  let providerCache = parsedCapFileCache.get(provider);
+  if (!providerCache) {
+    providerCache = new Map<string, ProviderCapabilityFile | null>();
+    parsedCapFileCache.set(provider, providerCache);
   }
 
-  for (const capabilitiesDir of capabilitiesDirCache) {
-    const filePath = path.join(capabilitiesDir, capabilityFilename(provider));
-    try {
-      const content = fs.readFileSync(filePath, 'utf-8');
-      const data = JSON.parse(content) as ProviderCapabilityFile;
-      parsedCapFileCache.set(provider, data);
-      return data;
-    } catch {
-      continue;
-    }
+  if (providerCache.has(capabilitiesDir)) {
+    return providerCache.get(capabilitiesDir)!;
   }
 
-  parsedCapFileCache.set(provider, null);
-  return null;
+  try {
+    const content = fs.readFileSync(capabilityFilePath, 'utf-8');
+    const data = JSON.parse(content) as ProviderCapabilityFile;
+    providerCache.set(capabilitiesDir, data);
+    return data;
+  } catch {
+    providerCache.set(capabilitiesDir, null);
+    return null;
+  }
 }
 
 function loadProviderCapability(
@@ -520,10 +523,22 @@ function loadProviderCapability(
   const cache = providerCapCaches[dimension];
   if (cache.has(provider)) return cache.get(provider)!;
 
-  const file = loadProviderCapabilityFile(provider, useDynamicLoading);
-  const models = file?.[dimension] ?? null;
-  cache.set(provider, models);
-  return models;
+  if (capabilitiesDirCache === undefined) {
+    capabilitiesDirCache = findCapabilitiesDirs(useDynamicLoading);
+  }
+
+  for (const capabilitiesDir of capabilitiesDirCache) {
+    const filePath = path.join(capabilitiesDir, capabilityFilename(provider));
+    const file = loadProviderCapabilityFile(provider, capabilitiesDir, filePath);
+    const models = file?.[dimension];
+    if (models) {
+      cache.set(provider, models);
+      return models;
+    }
+  }
+
+  cache.set(provider, null);
+  return null;
 }
 
 function getProviderCapabilitySupport(
