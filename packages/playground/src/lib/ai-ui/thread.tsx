@@ -317,6 +317,7 @@ const SpeechInput = ({
   const { start, stop, isListening, transcript, error } = useSpeechRecognition({ agentId, requestContext });
   const [speechSupported, setSpeechSupported] = useState<boolean | null>(null);
   const [speechError, setSpeechError] = useState<string | null>(null);
+  const lastAppliedTranscriptRef = useRef<string>('');
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -332,6 +333,9 @@ const SpeechInput = ({
 
   useEffect(() => {
     if (!transcript) return;
+    if (transcript === lastAppliedTranscriptRef.current) return;
+
+    lastAppliedTranscriptRef.current = transcript;
     setSpeechError(null);
     startTransition(() => onTranscript(transcript));
   }, [onTranscript, transcript]);
@@ -371,6 +375,7 @@ const SpeechInput = ({
         }
 
         try {
+          lastAppliedTranscriptRef.current = '';
           setSpeechError(null);
           await start();
         } catch (error) {
