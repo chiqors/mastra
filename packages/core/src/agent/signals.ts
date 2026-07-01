@@ -395,12 +395,13 @@ function injectMarkerInline(
 
 function signalPartToLLMPart(part: SignalPart): TextPart | ImagePart | FilePart {
   if (part.type === 'file' && part.mediaType.startsWith('image/')) {
-    return {
+    const imagePart = {
       type: 'image',
       image: part.data,
       mimeType: part.mediaType,
       ...(part.providerOptions ? { providerOptions: part.providerOptions } : {}),
     };
+    return imagePart as ImagePart;
   }
 
   if (part.type === 'file') {

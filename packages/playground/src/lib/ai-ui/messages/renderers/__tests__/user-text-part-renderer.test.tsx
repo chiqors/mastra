@@ -16,14 +16,12 @@ describe('UserTextPartRenderer', () => {
     expect(screen.getAllByText('System reminder').length).toBeGreaterThan(0);
   });
 
-  it('renders an in-message attachment preview (not raw markdown) for attachment text', () => {
+  it('renders attachment marker text as plain markdown content', () => {
     const part = { type: 'text', text: '<attachment name="notes.txt">hello body</attachment>' } as TextPart;
 
-    const { container } = render(<UserTextPartRenderer part={part} />);
+    render(<UserTextPartRenderer part={part} />);
 
-    // The collapsed TxtEntry preview shows an open-preview button, not the body.
-    expect(container.querySelector('button')).not.toBeNull();
-    expect(screen.queryByText(/hello body/)).toBeNull();
+    expect(screen.getByText(/hello body/)).toBeTruthy();
   });
 
   it('renders plain markdown text otherwise', () => {

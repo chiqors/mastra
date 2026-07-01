@@ -138,6 +138,13 @@ const isPendingMessage = (message: MastraDBMessage): boolean => {
   });
 };
 
+const isImageAttachmentPart = (part: MessagePart): boolean => {
+  if (part.type !== 'file') return false;
+  const filePart = part as MessagePart & { mediaType?: string; mimeType?: string };
+  const mediaType = filePart.mediaType ?? filePart.mimeType;
+  return typeof mediaType === 'string' && mediaType.startsWith('image/');
+};
+
 const CopyButton = ({ text }: { text: string }) => {
   const { isCopied, copyToClipboard } = useCopyToClipboard({ copiedDuration: 1500, showToast: false });
 
@@ -148,20 +155,60 @@ const CopyButton = ({ text }: { text: string }) => {
   );
 };
 
+const formatMessageTime = (createdAt: Date | string | undefined): string | null => {
+  if (!createdAt) return null;
+  const date = createdAt instanceof Date ? createdAt : new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(date);
+};
+
+const MessageFooter = ({
+  text,
+  createdAt,
+  align = 'right',
+  children,
+}: {
+  text: string;
+  createdAt?: Date | string;
+  align?: 'left' | 'right';
+  children?: React.ReactNode;
+}) => {
+  const timestamp = formatMessageTime(createdAt);
+
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-1 text-icon5 text-ui-xs leading-ui-xs',
+        align === 'right' ? 'justify-end self-end' : 'justify-start',
+      )}
+    >
+      {timestamp && <span className="pr-1">{timestamp}</span>}
+      <CopyButton text={text} />
+      {children}
+    </div>
+  );
+};
+
 const AssistantActionBar = ({
   text,
+  createdAt,
   modelMetadata,
   isSpeaking,
   onReadAloud,
   onStopSpeaking,
 }: {
   text: string;
+  createdAt?: Date | string;
   modelMetadata?: { modelId: string; modelProvider: string };
   isSpeaking?: boolean;
   onReadAloud?: (text: string) => void;
   onStopSpeaking?: () => void;
 }) => (
-  <div className="flex gap-1 items-center transition-all relative">
+  <div className="flex flex-wrap gap-1 items-center transition-all relative">
     {modelMetadata && (
       <div className="flex items-center gap-1 pr-2 text-icon5 text-ui-xs leading-ui-xs">
         <ProviderLogo providerId={modelMetadata.modelProvider} size={14} />
@@ -170,23 +217,24 @@ const AssistantActionBar = ({
         </span>
       </div>
     )}
-    {(onReadAloud || onStopSpeaking) &&
-      (isSpeaking ? (
-        <Button variant="ghost" size="icon-xs" tooltip="Stop" aria-label="Stop" onClick={() => onStopSpeaking?.()}>
-          <StopCircleIcon />
-        </Button>
-      ) : (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          tooltip="Read aloud"
-          aria-label="Read aloud"
-          onClick={() => onReadAloud?.(text)}
-        >
-          <AudioLinesIcon />
-        </Button>
-      ))}
-    <CopyButton text={text} />
+    <MessageFooter text={text} createdAt={createdAt} align="left">
+      {(onReadAloud || onStopSpeaking) &&
+        (isSpeaking ? (
+          <Button variant="ghost" size="icon-xs" tooltip="Stop" aria-label="Stop" onClick={() => onStopSpeaking?.()}>
+            <StopCircleIcon />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            tooltip="Read aloud"
+            aria-label="Read aloud"
+            onClick={() => onReadAloud?.(text)}
+          >
+            <AudioLinesIcon />
+          </Button>
+        ))}
+    </MessageFooter>
   </div>
 );
 
@@ -229,6 +277,30 @@ export const MessageRow = ({ message, hasModelList, isSpeaking, onReadAloud, onS
 
   if (displayRole === 'user') {
     const isPending = isPendingMessage(message);
+    const attachmentParts = dbMessage.content.parts.filter(part => part.type === 'file');
+    const imageAttachmentParts = attachmentParts.filter(isImageAttachmentPart);
+    const nonImageAttachmentParts = attachmentParts.filter(part => !isImageAttachmentPart(part));
+    const textParts = dbMessage.content.parts.filter(part => part.type !== 'file');
+    const textMessage =
+      textParts.length > 0
+        ? ({
+            ...dbMessage,
+            content: {
+              ...dbMessage.content,
+              parts: textParts,
+            },
+          } as MastraDBMessage)
+        : null;
+    const nonImageAttachmentMessage =
+      nonImageAttachmentParts.length > 0
+        ? ({
+            ...dbMessage,
+            content: {
+              ...dbMessage.content,
+              parts: nonImageAttachmentParts,
+            },
+          } as MastraDBMessage)
+        : null;
 
     return (
       <div
@@ -237,13 +309,29 @@ export const MessageRow = ({ message, hasModelList, isSpeaking, onReadAloud, onS
         data-message-pending={isPending ? 'true' : undefined}
       >
         <DatasetSaveAction messageText={getTextFromParts(message)} />
-        <div
-          className={cn(
-            'max-w-[max(366px,70%)] break-words px-4 py-2 text-neutral6 text-ui-lg leading-ui-lg rounded-xl bg-surface3',
-            isPending && 'opacity-60 animate-pulse',
+        <div className={cn('flex max-w-[max(366px,70%)] flex-col items-end gap-2', isPending && 'opacity-60 animate-pulse')}>
+          {imageAttachmentParts.length > 0 && (
+            <div className="grid max-w-full grid-cols-2 gap-2 rounded-2xl bg-surface3 p-2">
+              {imageAttachmentParts.map((part, index) => (
+                <UserFilePartRenderer
+                  key={`user-image-${message.id}-${index}`}
+                  part={part as Parameters<typeof UserFilePartRenderer>[0]['part']}
+                  size="compact"
+                />
+              ))}
+            </div>
           )}
-        >
-          <MessageFactory message={dbMessage} {...userRenderers} status={messageStatusRenderers} />
+          {nonImageAttachmentMessage && (
+            <div className="max-w-full rounded-xl bg-surface3 px-4 py-2">
+              <MessageFactory message={nonImageAttachmentMessage} {...userRenderers} status={messageStatusRenderers} />
+            </div>
+          )}
+          {textMessage && (
+            <div className="max-w-full break-words rounded-xl bg-surface3 px-4 py-2 text-neutral6 text-ui-lg leading-ui-lg">
+              <MessageFactory message={textMessage} {...userRenderers} status={messageStatusRenderers} />
+            </div>
+          )}
+          <MessageFooter text={getTextFromParts(message)} createdAt={message.createdAt} />
         </div>
       </div>
     );
@@ -260,6 +348,7 @@ export const MessageRow = ({ message, hasModelList, isSpeaking, onReadAloud, onS
         <div className="h-6 pt-4 flex gap-2 items-center">
           <AssistantActionBar
             text={getTextFromParts(message)}
+            createdAt={message.createdAt}
             modelMetadata={modelMetadata}
             isSpeaking={isSpeaking}
             onReadAloud={onReadAloud}

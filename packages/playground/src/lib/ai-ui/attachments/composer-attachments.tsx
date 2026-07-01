@@ -3,7 +3,7 @@ import { fileToBase64, getFileContentType, isRemoteUrl } from '@mastra/playgroun
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
-export type ComposerAttachmentKind = 'image' | 'pdf' | 'video' | 'text';
+export type ComposerAttachmentKind = 'image' | 'pdf' | 'video' | 'text' | 'file';
 
 export interface ComposerAttachment {
   id: string;
@@ -34,6 +34,7 @@ const kindForContentType = (contentType: string): ComposerAttachmentKind => {
   // inlines local files as a data URI. Audio shares this path so audio URLs are
   // sent as file parts instead of falling through to the empty-text branch.
   if (contentType.startsWith('video/') || contentType.startsWith('audio/')) return 'video';
+  if (contentType.startsWith('text/')) return 'text';
   return 'text';
 };
 
@@ -56,7 +57,7 @@ const toAttachment = (file: File): ComposerAttachment => {
     file,
     name: file.name,
     contentType,
-    kind: kindForContentType(contentType),
+    kind: kindForFile(file, contentType),
     isUrl,
   };
 };
@@ -97,6 +98,21 @@ const attachmentToCoreUserMessage = async (att: ComposerAttachment): Promise<Cor
     // URL attachments forward the raw URI so the model provider fetches it
     // server-side (e.g. Google Cloud for gs://). Local files are inlined as a
     // data URI — `fileToBase64` already returns a full `data:*;base64,...` string.
+    const data = att.isUrl ? att.name : await fileToBase64(att.file);
+    return {
+      role: 'user' as const,
+      content: [
+        {
+          type: 'file' as const,
+          data,
+          mimeType: att.contentType,
+          filename: att.name,
+        },
+      ],
+    };
+  }
+
+  if (att.kind === 'file') {
     const data = att.isUrl ? att.name : await fileToBase64(att.file);
     return {
       role: 'user' as const,
@@ -158,4 +174,33 @@ export const useComposerAttachments = (): ComposerAttachmentsContextValue => {
     throw new Error('useComposerAttachments must be used within a ComposerAttachmentsProvider');
   }
   return ctx;
+};
+const binaryOfficeContentTypes = new Set([
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/msword',
+  'application/vnd.ms-excel',
+  'application/vnd.ms-powerpoint',
+  'application/zip',
+  'application/octet-stream',
+]);
+
+const kindForFile = (file: File, contentType: string): ComposerAttachmentKind => {
+  if (binaryOfficeContentTypes.has(contentType)) return 'file';
+
+  const lowerName = file.name.toLowerCase();
+  if (
+    lowerName.endsWith('.docx') ||
+    lowerName.endsWith('.xlsx') ||
+    lowerName.endsWith('.pptx') ||
+    lowerName.endsWith('.doc') ||
+    lowerName.endsWith('.xls') ||
+    lowerName.endsWith('.ppt') ||
+    lowerName.endsWith('.zip')
+  ) {
+    return 'file';
+  }
+
+  return kindForContentType(contentType);
 };

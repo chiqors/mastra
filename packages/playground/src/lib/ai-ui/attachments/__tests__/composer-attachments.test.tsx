@@ -42,17 +42,21 @@ const renderProvider = () => {
 const imageFile = () => new File(['fake-bytes'], 'photo.png', { type: 'image/png' });
 const textFile = () => new File(['hello world'], 'notes.txt', { type: 'text/plain' });
 const pdfFile = () => new File(['pdf-bytes'], 'doc.pdf', { type: 'application/pdf' });
+const docxFile = () =>
+  new File(['pk-binary'], 'doc.docx', {
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  });
 
 describe('composer attachments', () => {
   it('adds files and classifies them by kind', () => {
     const { ref } = renderProvider();
 
     act(() => {
-      ref.current!.addFiles([imageFile(), textFile(), pdfFile()]);
+      ref.current!.addFiles([imageFile(), textFile(), pdfFile(), docxFile()]);
     });
 
     const kinds = ref.current!.attachments.map(a => a.kind);
-    expect(kinds).toEqual(['image', 'text', 'pdf']);
+    expect(kinds).toEqual(['image', 'text', 'pdf', 'file']);
   });
 
   it('removes a single attachment by id and clears all', () => {
@@ -74,17 +78,17 @@ describe('composer attachments', () => {
     expect(ref.current!.attachments).toHaveLength(0);
   });
 
-  it('converts image / pdf / text attachments to CoreUserMessages', async () => {
+  it('converts image / pdf / docx / text attachments to CoreUserMessages', async () => {
     const { ref } = renderProvider();
 
     act(() => {
-      ref.current!.addFiles([imageFile(), pdfFile(), textFile()]);
+      ref.current!.addFiles([imageFile(), pdfFile(), docxFile(), textFile()]);
     });
 
     const messages = await ref.current!.toCoreUserMessages();
-    expect(messages).toHaveLength(3);
+    expect(messages).toHaveLength(4);
 
-    const [image, pdf, text] = messages;
+    const [image, pdf, docx, text] = messages;
     // image part
     expect(Array.isArray(image!.content)).toBe(true);
     const imagePart = (image!.content as Array<{ type: string; mimeType?: string }>)[0];
@@ -99,6 +103,15 @@ describe('composer attachments', () => {
     // The data URL prefix must appear exactly once; `fileToBase64` already
     // returns a full data URL, so it must not be prepended a second time.
     expect(pdfPart!.data).not.toMatch(/data:application\/pdf;base64,data:/);
+
+    // docx -> file part with data: prefix, not plain text
+    const docxPart = (docx!.content as Array<{ type: string; data?: string; filename?: string; mimeType?: string }>)?.[0];
+    expect(docxPart!.type).toBe('file');
+    expect(docxPart!.filename).toBe('doc.docx');
+    expect(docxPart!.mimeType).toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    expect(docxPart!.data).toMatch(
+      /^data:application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document;base64,/,
+    );
 
     // text -> plain string content
     expect(text!.content).toBe('hello world');

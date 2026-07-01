@@ -84,6 +84,74 @@ describe('MessageRow', () => {
       }),
     );
     expect(screen.getByText('a user line')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /copy/i })).toBeTruthy();
+  });
+
+  it('renders user file attachments in a separate block above the user text bubble', () => {
+    const { container } = renderRow(
+      baseMessage({
+        role: 'user',
+        content: {
+          format: 2,
+          parts: [
+            {
+              type: 'file',
+              mimeType: 'application/pdf',
+              data: 'https://example.com/doc.pdf',
+              filename: 'doc.pdf',
+            } as never,
+            { type: 'text', text: 'read the file' },
+          ],
+        },
+      }),
+    );
+
+    expect(screen.getByText('doc.pdf')).toBeTruthy();
+    expect(screen.getByText('PDF')).toBeTruthy();
+    expect(screen.getByText('read the file')).toBeTruthy();
+
+    const surfaceBlocks = container.querySelectorAll('.bg-surface3');
+    expect(surfaceBlocks.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('renders a localized timestamp for user messages', () => {
+    renderRow(
+      baseMessage({
+        role: 'user',
+        createdAt: new Date('2026-07-01T17:04:00.000Z'),
+        content: { format: 2, parts: [{ type: 'text', text: 'timed user message' }] },
+      }),
+    );
+
+    expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeTruthy();
+  });
+
+  it('renders multiple user images in a compact attachment grid above the text bubble', () => {
+    const { container } = renderRow(
+      baseMessage({
+        role: 'user',
+        content: {
+          format: 2,
+          parts: [
+            {
+              type: 'file',
+              mimeType: 'image/png',
+              data: 'https://example.com/one.png',
+            } as never,
+            {
+              type: 'file',
+              mimeType: 'image/jpeg',
+              data: 'https://example.com/two.jpg',
+            } as never,
+            { type: 'text', text: 'what do i see from 2 images here' },
+          ],
+        },
+      }),
+    );
+
+    expect(container.querySelectorAll('img').length).toBe(2);
+    expect(screen.getByText('what do i see from 2 images here')).toBeTruthy();
+    expect(container.querySelector('.grid.grid-cols-2')).not.toBeNull();
   });
 
   it('drops messages with no displayable role', () => {

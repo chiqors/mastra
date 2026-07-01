@@ -83,11 +83,12 @@ const AttachmentThumbnail = ({ attachment }: { attachment: ComposerAttachment })
                 <ImageAttachmentThumbnail attachment={attachment} />
               ) : attachment.kind === 'pdf' ? (
                 <ComposerPdfAttachment attachment={attachment} />
-              ) : attachment.kind === 'video' ? (
+              ) : attachment.kind === 'video' || attachment.kind === 'file' ? (
                 <FileChipEntry
                   name={attachment.name}
                   url={attachment.isUrl && isBrowserFetchableUrl(attachment.name) ? attachment.name : undefined}
                   contentType={attachment.contentType}
+                  variant="compact"
                 />
               ) : (
                 <ComposerTxtAttachment file={attachment.file} />

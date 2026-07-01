@@ -19,20 +19,22 @@ describe('UserFilePartRenderer', () => {
     expect(container.querySelector('img')).not.toBeNull();
   });
 
-  it('renders a PDF document preview by mimeType (url link)', () => {
+  it('renders a PDF file card by mimeType (url link)', () => {
     const part = {
       type: 'file',
       mimeType: 'application/pdf',
       data: 'https://example.com/doc.pdf',
     } satisfies FilePart;
 
-    const { container } = render(<UserFilePartRenderer part={part} />);
+    const { container, getByText } = render(<UserFilePartRenderer part={part} />);
 
-    // A URL-backed PDF renders an anchor to view the document, not an <img>.
     expect(container.querySelector('img')).toBeNull();
     const link = container.querySelector('a');
     expect(link).not.toBeNull();
     expect(link?.getAttribute('href')).toBe('https://example.com/doc.pdf');
+    expect(getByText('doc.pdf')).toBeTruthy();
+    expect(getByText('PDF')).toBeTruthy();
+    expect(container.querySelector('[aria-label="View PDF"]')).not.toBeNull();
   });
 
   it('falls back to a text document preview for other content', () => {
@@ -60,19 +62,38 @@ describe('UserFilePartRenderer', () => {
     expect(container.querySelector('img')).not.toBeNull();
   });
 
-  it('renders a PDF document preview for the V5 streaming shape (mediaType/url)', () => {
+  it('renders a PDF file card for the V5 streaming shape (mediaType/url)', () => {
     const part = v5FilePart({
       type: 'file',
       mediaType: 'application/pdf',
       url: 'https://example.com/doc.pdf',
     });
 
-    const { container } = render(<UserFilePartRenderer part={part} />);
+    const { container, getByText } = render(<UserFilePartRenderer part={part} />);
 
     expect(container.querySelector('img')).toBeNull();
     const link = container.querySelector('a');
     expect(link).not.toBeNull();
     expect(link?.getAttribute('href')).toBe('https://example.com/doc.pdf');
+    expect(getByText('doc.pdf')).toBeTruthy();
+    expect(getByText('PDF')).toBeTruthy();
+    expect(container.querySelector('[aria-label="View PDF"]')).not.toBeNull();
+  });
+
+  it('renders a clickable in-app PDF preview button for local PDF data', () => {
+    const part = {
+      type: 'file',
+      mimeType: 'application/pdf',
+      data: 'data:application/pdf;base64,AAAA',
+      filename: 'local.pdf',
+    } satisfies FilePart & { filename: string };
+
+    const { container, getByText } = render(<UserFilePartRenderer part={part} />);
+
+    expect(container.querySelector('button')).not.toBeNull();
+    expect(container.querySelector('a')).toBeNull();
+    expect(getByText('local.pdf')).toBeTruthy();
+    expect(getByText('PDF')).toBeTruthy();
   });
 
   it('falls back to a text document preview for the V5 streaming shape (mediaType/url)', () => {
@@ -182,5 +203,33 @@ describe('UserFilePartRenderer', () => {
     expect(container.querySelector('[aria-label="Video file"]')).not.toBeNull();
     expect(container.querySelector(`[title*="base64"]`)).toBeNull();
     expect(container.innerHTML).not.toContain(dataUri);
+  });
+
+  it('prefers the file part filename for generic file chips', () => {
+    const part = {
+      type: 'file',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      data: 'data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,AAAA',
+      filename: 'Resume.docx',
+    } satisfies FilePart & { filename: string };
+
+    const { getByText, container } = render(<UserFilePartRenderer part={part} />);
+
+    expect(getByText('Resume.docx')).toBeTruthy();
+    expect(getByText('Document')).toBeTruthy();
+    expect(container.querySelector('[aria-label="File"]')).not.toBeNull();
+  });
+
+  it('shows the URL filename when no explicit filename is provided', () => {
+    const part = {
+      type: 'file',
+      mimeType: 'video/mp4',
+      data: 'https://example.com/uploads/demo.mp4',
+    } satisfies FilePart;
+
+    const { getByText } = render(<UserFilePartRenderer part={part} />);
+
+    expect(getByText('demo.mp4')).toBeTruthy();
+    expect(getByText('Video')).toBeTruthy();
   });
 });
