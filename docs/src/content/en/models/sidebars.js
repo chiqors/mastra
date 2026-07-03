@@ -10,6 +10,11 @@ const sidebars = {
     'index',
     'embeddings',
     {
+      type: 'doc',
+      id: 'environment-variables',
+      label: 'Environment Variables',
+    },
+    {
       type: 'category',
       label: 'Gateways',
       collapsed: false,
@@ -358,6 +363,11 @@ const sidebars = {
         },
         {
           type: 'doc',
+          id: 'providers/kenari',
+          label: 'Kenari',
+        },
+        {
+          type: 'doc',
           id: 'providers/kilo',
           label: 'Kilo Gateway',
         },
@@ -660,6 +670,11 @@ const sidebars = {
           type: 'doc',
           id: 'providers/togetherai',
           label: 'Together AI',
+        },
+        {
+          type: 'doc',
+          id: 'providers/trustedrouter',
+          label: 'TrustedRouter',
         },
         {
           type: 'doc',
